@@ -6,9 +6,9 @@ Interactive 3D cube with the **CodeMyPixel** logo pattern on each face, built wi
 
 ## Demo
 
-<video src="./demo-cub.mp4" controls muted loop playsinline></video>
+![Demo animation](./demo-cub.gif)
 
-If the video does not render in your Markdown viewer, open it directly: [demo-cub.mp4](./demo-cub.mp4)
+Open the original video: [demo-cub.mp4](./demo-cub.mp4)
 
 ## Features
 
