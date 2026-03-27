@@ -4,6 +4,10 @@ Interactive 3D cube with the **Code My Pixel** logo pattern on each face, built 
 
 ![Three.js](https://img.shields.io/badge/Three.js-r160-blue)
 
+## Demo
+
+Watch the demo video: [_demo-cube.webm](./_demo-cube.webm)
+
 ## Features
 
 - **Extruded 3D buttons** — each face shows the 2×2 keypad logo with real geometry depth
