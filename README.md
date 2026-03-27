@@ -1,12 +1,14 @@
 # 3D Logo Cube
 
-Interactive 3D cube with the **Code My Pixel** logo pattern on each face, built with **Three.js**.
+Interactive 3D cube with the **CodeMyPixel** logo pattern on each face, built with **Three.js**.
 
 ![Three.js](https://img.shields.io/badge/Three.js-r160-blue)
 
 ## Demo
 
-Watch the demo video: [_demo-cube.webm](./_demo-cube.webm)
+<video src="./demo-cub.mp4" controls muted loop playsinline></video>
+
+If the video does not render in your Markdown viewer, open it directly: [demo-cub.mp4](./demo-cub.mp4)
 
 ## Features
 

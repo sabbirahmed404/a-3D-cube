@@ -27,6 +27,9 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 /* ═══════════════════ CONFIGURATION ═══════════════════ */
 
+const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+              || (window.innerWidth < 768 && 'ontouchstart' in window);
+
 const COLORS = {
     blue:   0x6488F8,
     yellow: 0xF5C644,
@@ -37,14 +40,14 @@ const COLORS = {
 };
 
 const BTN = {
-    size:     0.95,    // button width & height (= 2 × offset, no gaps)
-    outerR:   0.12,    // rounding on outer corners (cube-face corners)
-    arc:      0.95,    // quarter-circle radius for yellow & green curves
-    depth:    0.13,    // extrusion depth inward (keeps clear gap inside cube)
-    offset:   0.475,   // center-to-button-center distance
+    size:     0.95,
+    outerR:   0.12,
+    arc:      0.95,
+    depth:    0.13,
+    offset:   0.475,
     bevel:    0.01,
-    bevelSeg: 3,
-    curves:   48       // curve tessellation
+    bevelSeg: isMobile ? 2 : 3,
+    curves:   isMobile ? 24 : 48
 };
 
 const CUBE_SIZE   = 2.0;
@@ -59,11 +62,14 @@ scene.background = new THREE.Color(COLORS.bg);
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100);
 camera.position.set(3.5, 2.5, 3.5);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({
+    antialias: !isMobile,
+    powerPreference: 'high-performance'
+});
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.5 : 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = isMobile ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.9;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -113,7 +119,7 @@ scene.add(new THREE.AmbientLight(0x8899bb, 0.25));
 const keyLight = new THREE.DirectionalLight(0xeef0ff, 1.0);
 keyLight.position.set(4, 7, 5);
 keyLight.castShadow = true;
-keyLight.shadow.mapSize.set(1024, 1024);
+keyLight.shadow.mapSize.set(isMobile ? 512 : 1024, isMobile ? 512 : 1024);
 scene.add(keyLight);
 
 // Cool fill from opposite side
@@ -252,6 +258,24 @@ const extrudeOpts = {
 };
 
 function buttonMaterial(hex) {
+    if (isMobile) {
+        // Lighter material — same color/reflection look, skips expensive transmission render pass
+        return new THREE.MeshPhysicalMaterial({
+            color: hex,
+            roughness: 0.2,
+            metalness: 0.05,
+            clearcoat: 0.8,
+            clearcoatRoughness: 0.05,
+            reflectivity: 0.9,
+            envMapIntensity: 1.2,
+            transparent: true,
+            opacity: 0.88,
+            side: THREE.FrontSide,
+            sheen: 0.3,
+            sheenRoughness: 0.3,
+            sheenColor: new THREE.Color(0xffffff)
+        });
+    }
     return new THREE.MeshPhysicalMaterial({
         color: hex,
         roughness: 0.2,
@@ -277,28 +301,39 @@ function buttonMaterial(hex) {
 const cubeGroup  = new THREE.Group();
 const allButtons = [];
 
-// Build one face (4 colored buttons in 2×2 grid)
+// Pre-create shared geometries and materials (reused across all 6 faces)
+const _off = BTN.offset;
+const sharedGeos = [
+    new THREE.ExtrudeGeometry(blueShape(),   extrudeOpts),
+    new THREE.ExtrudeGeometry(yellowShape(), extrudeOpts),
+    new THREE.ExtrudeGeometry(greenShape(),  extrudeOpts),
+    new THREE.ExtrudeGeometry(pinkShape(),   extrudeOpts)
+];
+const sharedMats = [
+    buttonMaterial(COLORS.blue),
+    buttonMaterial(COLORS.yellow),
+    buttonMaterial(COLORS.green),
+    buttonMaterial(COLORS.pink)
+];
+const btnPositions = [
+    { x: -_off, y:  _off },
+    { x:  _off, y:  _off },
+    { x: -_off, y: -_off },
+    { x:  _off, y: -_off }
+];
+
+// Build one face (4 colored buttons in 2×2 grid, sharing geometry & material)
 function buildFace() {
     const group = new THREE.Group();
-    const off = BTN.offset;
 
-    const defs = [
-        { shape: blueShape(),    color: COLORS.blue,   x: -off, y:  off },
-        { shape: yellowShape(),  color: COLORS.yellow, x:  off, y:  off },
-        { shape: greenShape(),   color: COLORS.green,  x: -off, y: -off },
-        { shape: pinkShape(),    color: COLORS.pink,   x:  off, y: -off }
-    ];
-
-    defs.forEach(({ shape, color, x, y }) => {
-        const geo  = new THREE.ExtrudeGeometry(shape, extrudeOpts);
-        const mat  = buttonMaterial(color);
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(x, y, -BTN.depth);   // extrude inward from face surface
+    for (let i = 0; i < 4; i++) {
+        const mesh = new THREE.Mesh(sharedGeos[i], sharedMats[i]);
+        mesh.position.set(btnPositions[i].x, btnPositions[i].y, -BTN.depth);
         mesh.castShadow    = true;
-        mesh.receiveShadow = true;
+        mesh.receiveShadow = !isMobile;
         group.add(mesh);
         allButtons.push(mesh);
-    });
+    }
 
     return group;
 }
@@ -326,6 +361,8 @@ scene.add(cubeGroup);
 const raycaster = new THREE.Raycaster();
 const pointer   = new THREE.Vector2(-10, -10);
 let   hovered   = null;
+let   rayFrame  = 0;
+const RAY_SKIP  = isMobile ? 3 : 1;   // raycast every Nth frame on mobile
 
 renderer.domElement.addEventListener('pointermove', e => {
     pointer.x =  (e.clientX / innerWidth)  * 2 - 1;
@@ -344,10 +381,14 @@ function animate() {
     requestAnimationFrame(animate);
     controls.update();
 
-    // Raycast hover
-    raycaster.setFromCamera(pointer, camera);
-    const hits     = raycaster.intersectObjects(allButtons, false);
-    const newHover = hits.length ? hits[0].object : null;
+    // Raycast hover (throttled on mobile)
+    rayFrame++;
+    let newHover = hovered;
+    if (rayFrame % RAY_SKIP === 0) {
+        raycaster.setFromCamera(pointer, camera);
+        const hits = raycaster.intersectObjects(allButtons, false);
+        newHover   = hits.length ? hits[0].object : null;
+    }
 
     if (hovered && hovered !== newHover) {
         hovered.material.emissive.setHex(0x000000);
@@ -381,7 +422,7 @@ window.addEventListener('resize', () => {
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(innerWidth, innerHeight);
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(devicePixelRatio, isMobile ? 1.5 : 2));
 });
     </script>
 </body>
