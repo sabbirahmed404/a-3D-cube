@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Logo Cube</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #050508; overflow: hidden; width: 100vw; height: 100vh; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+/* ═══════════════════ CONFIGURATION ═══════════════════ */
+
+const COLORS = {
+    blue:   0x6488F8,
+    yellow: 0xF5C644,
+    green:  0x3EE88A,
+    pink:   0xF73B6B,
+    base:   0x0a0a12,
+    bg:     0x050508
+};
+
+const BTN = {
+    size:     0.95,    // button width & height (= 2 × offset, no gaps)
+    outerR:   0.12,    // rounding on outer corners (cube-face corners)
+    arc:      0.95,    // quarter-circle radius for yellow & green curves
+    depth:    0.13,    // extrusion depth inward (keeps clear gap inside cube)
+    offset:   0.475,   // center-to-button-center distance
+    bevel:    0.01,
+    bevelSeg: 3,
+    curves:   48       // curve tessellation
+};
+
+const CUBE_SIZE   = 2.0;
+const CUBE_RADIUS = 0.06;
+const HALF        = CUBE_SIZE / 2;
+
+/* ═══════════════════ RENDERER ═══════════════════════ */
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(COLORS.bg);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(3.5, 2.5, 3.5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.9;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+// Soft studio environment for natural reflections
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+pmrem.dispose();
+
+// Subtle depth fog for futuristic atmosphere
+scene.fog = new THREE.FogExp2(0x050508, 0.06);
+
+/* ═══════════════════ CONTROLS ═══════════════════════ */
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping  = true;
+controls.dampingFactor  = 0.06;
+controls.enablePan      = false;
+controls.minDistance     = 3;
+controls.maxDistance     = 8;
+controls.autoRotate     = true;
+controls.autoRotateSpeed = 1.2;
+
+let isDragging = false;
+let idleTimer;
+
+controls.addEventListener('start', () => {
+    isDragging = true;
+    controls.autoRotate = false;
+    clearTimeout(idleTimer);
+    renderer.domElement.style.cursor = 'grabbing';
+});
+
+controls.addEventListener('end', () => {
+    isDragging = false;
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => { controls.autoRotate = true; }, 3000);
+});
+
+/* ═══════════════════ LIGHTING ═══════════════════════ */
+
+// Soft cool ambient
+scene.add(new THREE.AmbientLight(0x8899bb, 0.25));
+
+// Main key light — warm white, moderate
+const keyLight = new THREE.DirectionalLight(0xeef0ff, 1.0);
+keyLight.position.set(4, 7, 5);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(1024, 1024);
+scene.add(keyLight);
+
+// Cool fill from opposite side
+const fillLight = new THREE.DirectionalLight(0x7088bb, 0.3);
+fillLight.position.set(-5, 2, -4);
+scene.add(fillLight);
+
+// Bottom rim — subtle blue uplighting
+const rimLight = new THREE.PointLight(0x3355cc, 0.2, 18);
+rimLight.position.set(0, -4, 4);
+scene.add(rimLight);
+
+// Futuristic accent — soft blue glow
+const accentBlue = new THREE.PointLight(0x3366ff, 0.12, 14);
+accentBlue.position.set(-3, 2, 4);
+scene.add(accentBlue);
+
+// Warm accent — subtle pink for contrast
+const accentPink = new THREE.PointLight(0xee4488, 0.08, 14);
+accentPink.position.set(4, -1, -3);
+scene.add(accentPink);
+
+// Top highlight — gentle overhead
+const topLight = new THREE.PointLight(0xaabbdd, 0.15, 15);
+topLight.position.set(0, 6, 0);
+scene.add(topLight);
+
+/* ═══════════════════ SHAPE FACTORIES ════════════════ */
+
+const hw = BTN.size / 2;
+const R  = BTN.outerR;
+const A  = BTN.arc;
+
+/**
+ * Blue (top-left) — outer corners: top-left, top-right, bottom-left.
+ * Inner corner (bottom-right) is sharp.
+ */
+function blueShape() {
+    const s = new THREE.Shape();
+    // bottom-right (inner) — sharp
+    s.moveTo( hw, -hw);
+    // right edge → top-right (outer) — rounded
+    s.lineTo( hw,  hw - R);
+    s.quadraticCurveTo( hw,  hw,  hw - R,  hw);
+    // top edge → top-left (outer) — rounded
+    s.lineTo(-hw + R,  hw);
+    s.quadraticCurveTo(-hw,  hw, -hw,  hw - R);
+    // left edge → bottom-left (outer) — rounded
+    s.lineTo(-hw, -hw + R);
+    s.quadraticCurveTo(-hw, -hw, -hw + R, -hw);
+    // bottom edge → back to start
+    s.lineTo( hw, -hw);
+    return s;
+}
+
+/**
+ * Yellow (top-right) — outer corners: top-left, top-right, bottom-right rounded.
+ * Inner corner (bottom-left) has concave arc cut.
+ */
+function yellowShape() {
+    const s = new THREE.Shape();
+    // start where arc meets bottom edge
+    s.moveTo(-hw + A, -hw);
+    // bottom edge → bottom-right (outer) — rounded
+    s.lineTo( hw - R, -hw);
+    s.quadraticCurveTo( hw, -hw,  hw, -hw + R);
+    // right edge → top-right (outer) — rounded
+    s.lineTo( hw,  hw - R);
+    s.quadraticCurveTo( hw,  hw,  hw - R,  hw);
+    // top edge → top-left (outer) — rounded
+    s.lineTo(-hw + R,  hw);
+    s.quadraticCurveTo(-hw,  hw, -hw,  hw - R);
+    // left edge → curve start
+    s.lineTo(-hw, -hw + A);
+    // inward curve (bows toward inner corner)
+    s.quadraticCurveTo(-hw, -hw, -hw + A, -hw);
+    return s;
+}
+
+/**
+ * Green (bottom-left) — outer corners: top-left, bottom-left, bottom-right rounded.
+ * Inner corner (top-right) has concave arc cut.
+ */
+function greenShape() {
+    const s = new THREE.Shape();
+    // bottom-left (outer) — rounded
+    s.moveTo(-hw + R, -hw);
+    // bottom edge → bottom-right (outer) — rounded
+    s.lineTo( hw - R, -hw);
+    s.quadraticCurveTo( hw, -hw,  hw, -hw + R);
+    // right edge → curve start
+    s.lineTo( hw,  hw - A);
+    // inward curve (bows toward inner corner)
+    s.quadraticCurveTo(hw, hw, hw - A, hw);
+    // top edge → top-left (outer) — rounded
+    s.lineTo(-hw + R,  hw);
+    s.quadraticCurveTo(-hw,  hw, -hw,  hw - R);
+    // left edge → bottom-left (outer)
+    s.lineTo(-hw, -hw + R);
+    s.quadraticCurveTo(-hw, -hw, -hw + R, -hw);
+    return s;
+}
+
+/**
+ * Pink (bottom-right) — outer corners: top-right, bottom-left, bottom-right rounded.
+ * Inner corner (top-left) is sharp.
+ */
+function pinkShape() {
+    const s = new THREE.Shape();
+    // top-left (inner) — sharp
+    s.moveTo(-hw, hw);
+    // left edge → bottom-left (outer) — rounded
+    s.lineTo(-hw, -hw + R);
+    s.quadraticCurveTo(-hw, -hw, -hw + R, -hw);
+    // bottom edge → bottom-right (outer) — rounded
+    s.lineTo( hw - R, -hw);
+    s.quadraticCurveTo( hw, -hw,  hw, -hw + R);
+    // right edge → top-right (outer) — rounded
+    s.lineTo( hw,  hw - R);
+    s.quadraticCurveTo( hw,  hw,  hw - R,  hw);
+    // top edge → back to start
+    s.lineTo(-hw,  hw);
+    return s;
+}
+
+/* ═══════════════════ EXTRUSION & MATERIALS ══════════ */
+
+const extrudeOpts = {
+    depth:          BTN.depth,
+    bevelEnabled:   true,
+    bevelThickness: BTN.bevel,
+    bevelSize:      BTN.bevel,
+    bevelOffset:    0,
+    bevelSegments:  BTN.bevelSeg,
+    curveSegments:  BTN.curves
+};
+
+function buttonMaterial(hex) {
+    return new THREE.MeshPhysicalMaterial({
+        color: hex,
+        roughness: 0.2,
+        metalness: 0.05,
+        transmission: 0.35,
+        thickness: 0.5,
+        ior: 1.45,
+        clearcoat: 0.8,
+        clearcoatRoughness: 0.05,
+        reflectivity: 0.9,
+        envMapIntensity: 1.2,
+        transparent: true,
+        opacity: 0.90,
+        side: THREE.DoubleSide,
+        sheen: 0.3,
+        sheenRoughness: 0.3,
+        sheenColor: new THREE.Color(0xffffff)
+    });
+}
+
+/* ═══════════════════ BUILD CUBE ═════════════════════ */
+
+const cubeGroup  = new THREE.Group();
+const allButtons = [];
+
+// Build one face (4 colored buttons in 2×2 grid)
+function buildFace() {
+    const group = new THREE.Group();
+    const off = BTN.offset;
+
+    const defs = [
+        { shape: blueShape(),    color: COLORS.blue,   x: -off, y:  off },
+        { shape: yellowShape(),  color: COLORS.yellow, x:  off, y:  off },
+        { shape: greenShape(),   color: COLORS.green,  x: -off, y: -off },
+        { shape: pinkShape(),    color: COLORS.pink,   x:  off, y: -off }
+    ];
+
+    defs.forEach(({ shape, color, x, y }) => {
+        const geo  = new THREE.ExtrudeGeometry(shape, extrudeOpts);
+        const mat  = buttonMaterial(color);
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(x, y, -BTN.depth);   // extrude inward from face surface
+        mesh.castShadow    = true;
+        mesh.receiveShadow = true;
+        group.add(mesh);
+        allButtons.push(mesh);
+    });
+
+    return group;
+}
+
+// Place faces on all six sides
+const PI = Math.PI;
+[
+    { p: [ 0,  0,  HALF], r: [0,       0,      0] },        // front  +Z
+    { p: [ 0,  0, -HALF], r: [0,       PI,     0] },        // back   −Z
+    { p: [ HALF,  0,  0], r: [0,       PI / 2, 0] },        // right  +X
+    { p: [-HALF,  0,  0], r: [0,      -PI / 2, 0] },        // left   −X
+    { p: [ 0,  HALF,  0], r: [-PI / 2, 0,      0] },        // top    +Y
+    { p: [ 0, -HALF,  0], r: [ PI / 2, 0,      0] }         // bottom −Y
+].forEach(({ p, r: rot }) => {
+    const face = buildFace();
+    face.position.set(...p);
+    face.rotation.set(...rot);
+    cubeGroup.add(face);
+});
+
+scene.add(cubeGroup);
+
+/* ═══════════════════ HOVER INTERACTION ══════════════ */
+
+const raycaster = new THREE.Raycaster();
+const pointer   = new THREE.Vector2(-10, -10);
+let   hovered   = null;
+
+renderer.domElement.addEventListener('pointermove', e => {
+    pointer.x =  (e.clientX / innerWidth)  * 2 - 1;
+    pointer.y = -(e.clientY / innerHeight) * 2 + 1;
+});
+
+renderer.domElement.addEventListener('pointerleave', () => pointer.set(-10, -10));
+
+const HOVER_SCALE  = new THREE.Vector3(1.06, 1.06, 1.35);
+const NORMAL_SCALE = new THREE.Vector3(1, 1, 1);
+const LERP_SPEED   = 0.1;
+
+/* ═══════════════════ ANIMATION LOOP ═════════════════ */
+
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+
+    // Raycast hover
+    raycaster.setFromCamera(pointer, camera);
+    const hits     = raycaster.intersectObjects(allButtons, false);
+    const newHover = hits.length ? hits[0].object : null;
+
+    if (hovered && hovered !== newHover) {
+        hovered.material.emissive.setHex(0x000000);
+    }
+
+    hovered = newHover;
+
+    if (hovered) {
+        hovered.material.emissive.setHex(0x111118);
+    }
+
+    // Cursor
+    if (!isDragging) {
+        renderer.domElement.style.cursor = hovered ? 'pointer' : 'grab';
+    }
+
+    // Smooth scale interpolation on hover
+    for (const btn of allButtons) {
+        const target = btn === hovered ? HOVER_SCALE : NORMAL_SCALE;
+        btn.scale.lerp(target, LERP_SPEED);
+    }
+
+    renderer.render(scene, camera);
+}
+
+animate();
+
+/* ═══════════════════ RESIZE ═════════════════════════ */
+
+window.addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+});
+    </script>
+</body>
+</html>
